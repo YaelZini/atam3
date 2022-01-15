@@ -1,0 +1,139 @@
+diff -Naur source-orig/src/file.c source-new/src/file.c
+--- source-orig/src/file.c	2020-01-19 20:32:59.000000000 +0000
++++ source-new/src/file.c	2022-01-15 17:47:32.459764227 +0000
+@@ -1138,6 +1138,22 @@
+       VERIFY_CACHED (d, stem);
+     }
+ }
++static FILE* mo_result_file = NULL;
++
++static void
++append_to_file (const void *item)
++{
++  const struct file *f = item;
++  const struct dep *d;
++
++  /* Check the deps.  */
++  for (d = f->deps; d != 0; d = d->next)
++    {
++      //if (! d->need_2nd_expansion){
++        fprintf(mo_result_file, "<%s>\n", d->name);
++      //}
++    }
++}
+ 
+ void
+ verify_file_data_base (void)
+@@ -1145,6 +1161,41 @@
+   hash_map (&files, verify_file);
+ }
+ 
++void dump_file_data_base (void)
++{
++  hash_map (&files, append_to_file);
++}
++
++static void print_dep_graph(const void* item, void* stream)
++{
++    FILE* output_file = stream;
++    const struct file *f = item;
++    //fprintf(output_file, "digraph depgraph {\n");
++    if (f->is_target){
++        const struct dep *deps = f->deps;
++        for (; deps !=0; deps = deps->next){
++            fprintf(output_file,"\t%s -> %s;\n",f->name, dep_name(deps));
++        }
++    }
++    //fprintf(output_file, "{\n");
++}
++
++
++void print_dep_graph_aux(const char* file_name) {
++    mo_result_file = fopen(file_name,"w");
++    if (!mo_result_file){
++        printf("error in opening <%s>\n", file_name);
++        return;
++    }
++    fprintf(mo_result_file, "digraph depgraph {\n");
++    hash_map_arg(&files, print_dep_graph, mo_result_file);
++    fprintf(mo_result_file, "}\n");
++    fclose(mo_result_file);
++    mo_result_file =NULL;
++
++}
++
++
+ #define EXPANSION_INCREMENT(_l)  ((((_l) / 500) + 1) * 500)
+ 
+ char *
+diff -Naur source-orig/src/filedef.h source-new/src/filedef.h
+--- source-orig/src/filedef.h	2020-01-03 07:11:27.000000000 +0000
++++ source-new/src/filedef.h	2022-01-14 12:33:18.687055317 +0000
+@@ -110,7 +110,6 @@
+ 
+ extern struct file *default_file;
+ 
+-
+ struct file *lookup_file (const char *name);
+ struct file *enter_file (const char *name);
+ struct dep *split_prereqs (char *prereqstr);
+@@ -129,6 +128,7 @@
+ void print_file_data_base (void);
+ int try_implicit_rule (struct file *file, unsigned int depth);
+ int stemlen_compare (const void *v1, const void *v2);
++void print_dep_graph_aux(const char* file_name);
+ 
+ #if FILE_TIMESTAMP_HI_RES
+ # define FILE_TIMESTAMP_STAT_MODTIME(fname, st) \
+diff -Naur source-orig/src/main.c source-new/src/main.c
+--- source-orig/src/main.c	2020-01-19 20:32:59.000000000 +0000
++++ source-new/src/main.c	2022-01-14 12:19:17.514891947 +0000
+@@ -15,6 +15,7 @@
+ this program.  If not, see <http://www.gnu.org/licenses/>.  */
+ 
+ #include "makeint.h"
++#include "hash.h"
+ #include "os.h"
+ #include "filedef.h"
+ #include "dep.h"
+@@ -101,6 +102,9 @@
+ double atof ();
+ #endif
+ 
++
++
++
+ static void clean_jobserver (int status);
+ static void print_data_base (void);
+ static void print_version (void);
+@@ -287,6 +291,8 @@
+ 
+ static struct stringlist *include_directories = 0;
+ 
++static struct stringlist *file_name = 0;
++
+ /* List of files given with -o switches.  */
+ 
+ static struct stringlist *old_files = 0;
+@@ -464,6 +470,7 @@
+     { CHAR_MAX+7, string, &sync_mutex, 1, 1, 0, 0, 0, "sync-mutex" },
+     { CHAR_MAX+8, flag_off, &silent_flag, 1, 1, 0, 0, &default_silent_flag, "no-silent" },
+     { CHAR_MAX+9, string, &jobserver_auth, 1, 0, 0, 0, 0, "jobserver-fds" },
++    { CHAR_MAX+10, filename, &file_name, 1, 1, 0, 0, 0, "gen-depgraph" },
+     { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+   };
+ 
+@@ -2159,6 +2166,13 @@
+         }
+     }
+ 
++
++
++  if (file_name != NULL ){
++      print_dep_graph_aux(file_name->list[0]);
++  }
++
++
+   if (!restarts && new_files != 0)
+     {
+       const char **p;
